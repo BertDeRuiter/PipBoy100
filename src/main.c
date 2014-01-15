@@ -11,6 +11,7 @@ static TextLayer *time_layer;
 static TextLayer *date_layer;
 static TextLayer *battery_layer;
 static TextLayer *xp_layer;
+static TextLayer *nextLvl_layer;
 static TextLayer *lvl_layer;
 
 static BitmapLayer *image_layer;
@@ -92,7 +93,8 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
   }
  
 	accel_service_peek(&accel);
-	static char xp[30];
+	static char xp[15];
+	static char nextLvl[15];
 	static char lvl[10];
 	fap_timer++;
 	
@@ -124,8 +126,10 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
 	}
 	snprintf(lvl, sizeof(lvl), "Level %i", lvl_counter);	
 	text_layer_set_text(lvl_layer, lvl);
-	snprintf(xp, sizeof(xp), "XP %i/%i", xp_counter,xp_needed);	
+	snprintf(xp, sizeof(xp), "XP    %i", xp_counter);	
 	text_layer_set_text(xp_layer, xp);
+	snprintf(nextLvl, sizeof(nextLvl), "Next %i", xp_needed);	
+	text_layer_set_text(nextLvl_layer, nextLvl);
 	
 	handle_battery(battery_state_service_peek());
 	if (units_changed & MONTH_UNIT) {
@@ -233,12 +237,20 @@ static void do_init(void) {
   text_layer_set_text_alignment(date_layer, GTextAlignmentLeft);
   text_layer_set_text(date_layer, "1-1-2013");
 	
-  xp_layer = text_layer_create(GRect(8, 146, frame.size.w, 34));
+  xp_layer = text_layer_create(GRect(8, 133, frame.size.w, 34));
   text_layer_set_text_color(xp_layer, GColorWhite);
   text_layer_set_background_color(xp_layer, GColorClear);
   text_layer_set_font(xp_layer, fonts_get_system_font(FONT_KEY_GOTHIC_14));
   text_layer_set_text_alignment(xp_layer, GTextAlignmentLeft);
-  text_layer_set_text(xp_layer, "XP");	
+  text_layer_set_text(xp_layer, "XP");
+  
+  
+  nextLvl_layer = text_layer_create(GRect(8, 146, frame.size.w, 34));
+  text_layer_set_text_color(nextLvl_layer, GColorWhite);
+  text_layer_set_background_color(nextLvl_layer, GColorClear);
+  text_layer_set_font(nextLvl_layer, fonts_get_system_font(FONT_KEY_GOTHIC_14));
+  text_layer_set_text_alignment(nextLvl_layer, GTextAlignmentLeft);
+  text_layer_set_text(nextLvl_layer, "Next");		
 	
   lvl_layer = text_layer_create(GRect(0, 121, frame.size.w, 34));
   text_layer_set_text_color(lvl_layer, GColorWhite);
@@ -259,6 +271,7 @@ static void do_init(void) {
   layer_add_child(root_layer, text_layer_get_layer(battery_layer));
   layer_add_child(root_layer, text_layer_get_layer(date_layer));
   layer_add_child(root_layer, text_layer_get_layer(xp_layer));
+  layer_add_child(root_layer, text_layer_get_layer(nextLvl_layer));
   layer_add_child(root_layer, text_layer_get_layer(lvl_layer));	
  
   update_date_text();
@@ -278,6 +291,7 @@ static void do_deinit(void) {
   text_layer_destroy(date_layer);
   text_layer_destroy(xp_layer);
   text_layer_destroy(lvl_layer);
+  text_layer_destroy(nextLvl_layer);
   
   bitmap_layer_destroy(image_layer);
   gbitmap_destroy(image);
