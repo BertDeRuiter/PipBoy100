@@ -24,10 +24,13 @@ static int lvl_counter;
 static int fap_detection;
 static int fap_timer;
 static int x_max;
+static uint16_t lastMagnitude;
 	
 static GBitmap *image;
 static GBitmap *vaultBoy;
 static uint8_t firstCrippled = RESOURCE_ID_CRIPPLED_1;
+
+static int loadedImage = 0;
 static bool dead = false;
 
 const VibePattern BLUETOOTH_DISCONNECT_VIBE = {
@@ -63,12 +66,21 @@ static int getCurrentLvlFromXP() {
 }
 
 static void loadVaultBoyState(int ressource) {
+	APP_LOG(APP_LOG_LEVEL_DEBUG,"Load image %i",ressource);
 	if (vaultBoy) {
+		APP_LOG(APP_LOG_LEVEL_DEBUG, "Pointer instancied");
+			if(ressource == loadedImage) {
+				APP_LOG(APP_LOG_LEVEL_DEBUG, "Same image %i", loadedImage);
+				return;
+			}
+		APP_LOG(APP_LOG_LEVEL_DEBUG,"Unload image %i",loadedImage);
 		gbitmap_destroy(vaultBoy);	
     	free(vaultBoy);
-    }   
+    }
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "Load image to layer");   
 	vaultBoy = gbitmap_create_with_resource(ressource);	
-    bitmap_layer_set_bitmap(vaultBoy_layer, vaultBoy);   
+    bitmap_layer_set_bitmap(vaultBoy_layer, vaultBoy); 
+    loadedImage = ressource;  
 }
 
 
@@ -83,13 +95,23 @@ static void handle_battery(BatteryChargeState charge_state) {
   text_layer_set_text(battery_layer, battery_text);
 }
 
+static uint32_t positive(int val) {
+	if(val < 0)
+		return val *-1;
+	else 
+		return val;
+}
+
+static uint16_t getAccelMagnitude(AccelData *data) {
+	return my_sqrt((data->x * data->x) + (data->y * data->y) + (data->z * data->z));
+}
 
 static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
-  static char time_text[6]; 
-  char *time_format;
-  char *date_format;
+	static char time_text[6]; 
+	char *time_format;
+	char *date_format;
 	
-  if (clock_is_24h_style()) {
+	if (clock_is_24h_style()) {
     	time_format = "%R";
 		date_format = "%d-%m-%Y";
     } else {
@@ -97,12 +119,31 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
 		date_format = "%m-%d-%Y";
     }
 	
-  AccelData accel;
-  if(units_changed & SECOND_UNIT){
-	strftime(time_text, sizeof(time_text), time_format, tick_time);
-	 	text_layer_set_text(time_layer, time_text);
-  }
- 
+	if(units_changed & SECOND_UNIT){
+		strftime(time_text, sizeof(time_text), time_format, tick_time);
+		text_layer_set_text(time_layer, time_text);
+	}
+	
+  	if (units_changed & MONTH_UNIT) {
+		static char date_text[20];
+		strftime(date_text, sizeof(date_text), date_format, tick_time);
+		text_layer_set_text(date_layer, date_text);
+	}else if(units_changed & DAY_UNIT){
+		static char date_text[20];
+		strftime(date_text, sizeof(date_text), date_format, tick_time);
+		text_layer_set_text(date_layer, date_text);
+	}
+	
+	if(dead) {
+		dead = rand() %2;
+		if(!dead) {
+			loadVaultBoyState(RESOURCE_ID_VAULT_BOY);
+		} else {
+			return;
+		}
+	}
+	
+	AccelData accel;
 	accel_service_peek(&accel);
 	static char xp[15];
 	static char nextLvl[15];
@@ -120,10 +161,17 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
 			x_max = 25;
 		}	
 	}
+	APP_LOG(APP_LOG_LEVEL_DEBUG,"Accel : (%i,%i,%i)",accel.x,accel.y,accel.z);
+	
+	if(fap_detection == 1) {
+		lastMagnitude = getAccelMagnitude(&accel);
+	}
 	
 	if(fap_detection == 2 && fap_timer <= 10){
-		int increase = rand() % 10;
-		xp_counter = xp_counter + ((increase+1)*2);
+		uint16_t modulo = positive(lastMagnitude - getAccelMagnitude(&accel));
+		uint16_t increase = (rand() % modulo) + 1;
+		APP_LOG(APP_LOG_LEVEL_DEBUG,"Add xp %i%%%i", increase,modulo);
+		xp_counter += increase;
 		persist_write_int(PIPEXP, xp_counter);
 		fap_timer = 0;
 		fap_detection = 0;  
@@ -131,6 +179,8 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
 		fap_timer = 0;
 		fap_detection = 0;  
 	}
+	
+	
 	if(xp_counter >= xp_needed) {
 		lvl_counter++;
 		xp_needed = getXpForNextLvl();
@@ -142,15 +192,6 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
 	snprintf(nextLvl, sizeof(nextLvl), "Next %i", xp_needed);	
 	text_layer_set_text(nextLvl_layer, nextLvl);
 
-	if (units_changed & MONTH_UNIT) {
-		static char date_text[20];
-		strftime(date_text, sizeof(date_text), date_format, tick_time);
-		text_layer_set_text(date_layer, date_text);
-	}else if(units_changed & DAY_UNIT){
-		static char date_text[20];
-		strftime(date_text, sizeof(date_text), date_format, tick_time);
-		text_layer_set_text(date_layer, date_text);
-	}
 }
 
 void update_date_text(){
@@ -209,8 +250,8 @@ static void do_init(void) {
   bitmap_layer_set_alignment(image_layer, GAlignCenter);
   layer_add_child(root_layer, bitmap_layer_get_layer(image_layer));
 	
-  vaultBoy = gbitmap_create_with_resource(RESOURCE_ID_VAULT_BOY);	
-  vaultBoy_layer = bitmap_layer_create(GRect(3, 26, frame.size.w, 100));	
+  vaultBoy_layer = bitmap_layer_create(GRect(3, 26, frame.size.w, 100));
+  loadVaultBoyState(RESOURCE_ID_VAULT_BOY);		
   bitmap_layer_set_bitmap(vaultBoy_layer, vaultBoy);
   bitmap_layer_set_alignment(vaultBoy_layer, GAlignCenter);
   layer_add_child(root_layer, bitmap_layer_get_layer(vaultBoy_layer));	
