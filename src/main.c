@@ -130,7 +130,7 @@ static uint32_t positive(int val) {
 }
 
 static uint16_t getAccelMagnitude(AccelData *data) {
-	return my_sqrt((data->x * data->x) + (data->y * data->y) + (data->z * data->z));
+	return my_sqrt((data->x * data->x) + (data->y * data->y) + (data->z * data->z))%1000;
 }
 
 static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
