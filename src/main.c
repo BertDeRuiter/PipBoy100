@@ -6,12 +6,12 @@
 #define SQRT_MAX_STEPS 40
 
 
-Window *window; 
-TextLayer *time_layer; 
-TextLayer *date_layer;
-TextLayer *battery_layer;
-TextLayer *xp_layer;
-TextLayer *lvl_layer;
+static Window *window; 
+static TextLayer *time_layer; 
+static TextLayer *date_layer;
+static TextLayer *battery_layer;
+static TextLayer *xp_layer;
+static TextLayer *lvl_layer;
 
 static BitmapLayer *image_layer;
 static BitmapLayer *connect_layer;
