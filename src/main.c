@@ -2,9 +2,14 @@
 
 #include "pebble.h"
 
-#define PIPEXP 0	
+#define PIPEXP 0
+#define PIPE_LAST_XP 1
+#define PIPE_LAST_GAIN 2
+#define PIPE_CURRENT_CRIPPLED 3
+		
 #define SQRT_MAX_STEPS 40
-#define NB_CRIPPLED 5
+
+#define MAX_CRIPPLED 8
 
 
 static Window *window; 
@@ -25,13 +30,14 @@ static uint8_t fap_detection;
 static uint8_t fap_timer;
 static uint8_t x_max;
 static uint16_t lastMagnitude;
-static uint32_t lastXp;
+static uint32_t lastXp = 0;
+static uint32_t lastGain = 0;
 	
 static GBitmap *image;
 static GBitmap *vaultBoy;
-static uint8_t firstCrippled = RESOURCE_ID_CRIPPLED_1;
+static uint8_t currentVaultBoy = RESOURCE_ID_VAULT_BOY;
 
-static int loadedImage = 0;
+static uint8_t loadedImage = 0;
 static bool dead = false;
 
 const VibePattern BLUETOOTH_DISCONNECT_VIBE = {
@@ -66,7 +72,7 @@ static int getCurrentLvlFromXP() {
 	return (int)((xp_multiplier + my_sqrt(xp_multiplier * xp_multiplier - 4 * xp_multiplier * (-xp_counter) ))/ (2 * xp_multiplier));
 }
 
-static void loadVaultBoyState(int ressource) {
+static void loadVaultBoyState(uint8_t ressource) {
 	APP_LOG(APP_LOG_LEVEL_DEBUG,"Load image %i",ressource);
 	if (vaultBoy) {
 		APP_LOG(APP_LOG_LEVEL_DEBUG, "Pointer instancied");
@@ -84,6 +90,26 @@ static void loadVaultBoyState(int ressource) {
     loadedImage = ressource;  
 }
 
+static void vaultBoy_status() {
+	uint64_t currentGain = xp_counter - lastXp;
+	if(currentGain < lastGain) {
+		currentVaultBoy++;
+		if(currentVaultBoy == (MAX_CRIPPLED + 1)) {
+			dead = true;
+			loadVaultBoyState(RESOURCE_ID_DEAD);
+			currentVaultBoy = RESOURCE_ID_VAULT_BOY;
+		} else {
+			loadVaultBoyState(currentVaultBoy);
+		}
+	} else if(!dead && currentVaultBoy > RESOURCE_ID_VAULT_BOY) {
+		loadVaultBoyState(--currentVaultBoy);
+	}
+	lastGain = currentGain;
+	lastXp = xp_counter;
+	persist_write_int(PIPE_LAST_GAIN,lastGain);
+	persist_write_int(PIPE_LAST_XP,lastXp);
+	persist_write_int(PIPE_CURRENT_CRIPPLED,currentVaultBoy);
+}
 
 static void handle_battery(BatteryChargeState charge_state) {
   static char battery_text[10];
@@ -125,6 +151,10 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
 		text_layer_set_text(time_layer, time_text);
 	}
 	
+	if(units_changed & HOUR_UNIT) {
+		vaultBoy_status();
+	}
+	
   	if (units_changed & MONTH_UNIT) {
 		static char date_text[20];
 		strftime(date_text, sizeof(date_text), date_format, tick_time);
@@ -138,7 +168,8 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
 	if(dead) {
 		dead = rand() %2;
 		if(!dead) {
-			loadVaultBoyState(RESOURCE_ID_VAULT_BOY);
+			loadVaultBoyState(currentVaultBoy);
+			currentVaultBoy = RESOURCE_ID_VAULT_BOY;
 		} else {
 			return;
 		}
@@ -169,7 +200,7 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
 	}
 	
 	if(fap_detection == 2 && fap_timer <= 10){
-		uint16_t modulo = positive(lastMagnitude - getAccelMagnitude(&accel));
+		uint16_t modulo = positive(lastMagnitude - getAccelMagnitude(&accel)) + 10;
 		uint16_t increase = (rand() % modulo) + 1;
 		APP_LOG(APP_LOG_LEVEL_DEBUG,"Add xp %i%%%i", increase,modulo);
 		xp_counter += increase;
@@ -232,6 +263,19 @@ static void do_init(void) {
   }else{
 	xp_counter = 0;
   }
+  
+  if(persist_exists(PIPE_LAST_XP)) {
+	  lastXp = persist_read_int(PIPE_LAST_XP);
+  }
+  
+  if(persist_exists(PIPE_LAST_GAIN)) {
+	  lastGain = persist_read_int(PIPE_LAST_GAIN);
+  }
+  
+  if(persist_exists(PIPE_CURRENT_CRIPPLED)) {
+	  currentVaultBoy = persist_read_int(PIPE_CURRENT_CRIPPLED);
+  }
+  
   lvl_counter = getCurrentLvlFromXP();
   xp_needed = getXpForNextLvl();
   fap_detection = 0;
@@ -252,7 +296,7 @@ static void do_init(void) {
   layer_add_child(root_layer, bitmap_layer_get_layer(image_layer));
 	
   vaultBoy_layer = bitmap_layer_create(GRect(3, 26, frame.size.w, 100));
-  loadVaultBoyState(RESOURCE_ID_VAULT_BOY);		
+  loadVaultBoyState(currentVaultBoy);		
   bitmap_layer_set_bitmap(vaultBoy_layer, vaultBoy);
   bitmap_layer_set_alignment(vaultBoy_layer, GAlignCenter);
   layer_add_child(root_layer, bitmap_layer_get_layer(vaultBoy_layer));	
@@ -322,6 +366,9 @@ static void do_init(void) {
 
 static void do_deinit(void) {
   persist_write_int(PIPEXP, xp_counter);
+  persist_write_int(PIPE_LAST_XP, lastXp);
+  persist_write_int(PIPE_LAST_GAIN,lastGain);
+  persist_write_int(PIPE_CURRENT_CRIPPLED,currentVaultBoy);
   tick_timer_service_unsubscribe();
   battery_state_service_unsubscribe();
   bluetooth_connection_service_unsubscribe();
