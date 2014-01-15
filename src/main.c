@@ -4,6 +4,7 @@
 
 #define PIPEXP 0	
 #define SQRT_MAX_STEPS 40
+#define NB_CRIPPLED 5
 
 
 static Window *window; 
@@ -15,7 +16,7 @@ static TextLayer *nextLvl_layer;
 static TextLayer *lvl_layer;
 
 static BitmapLayer *image_layer;
-static BitmapLayer *connect_layer;
+static BitmapLayer *vaultBoy_layer;
 static int xp_counter;
 static int xp_needed;
 static int xp_multiplier;
@@ -25,7 +26,9 @@ static int fap_timer;
 static int x_max;
 	
 static GBitmap *image;
-static GBitmap *connect;
+static GBitmap *vaultBoy;
+static uint8_t firstCrippled = RESOURCE_ID_CRIPPLED_1;
+static bool dead = false;
 
 const VibePattern BLUETOOTH_DISCONNECT_VIBE = {
   .durations = (uint32_t []) {100, 85, 100, 85, 100},
@@ -59,6 +62,14 @@ static int getCurrentLvlFromXP() {
 	return (int)((xp_multiplier + my_sqrt(xp_multiplier * xp_multiplier - 4 * xp_multiplier * (-xp_counter) ))/ (2 * xp_multiplier));
 }
 
+static void loadVaultBoyState(int ressource) {
+	if (vaultBoy) {
+		gbitmap_destroy(vaultBoy);	
+    	free(vaultBoy);
+    }   
+	vaultBoy = gbitmap_create_with_resource(ressource);	
+    bitmap_layer_set_bitmap(vaultBoy_layer, vaultBoy);   
+}
 
 
 static void handle_battery(BatteryChargeState charge_state) {
@@ -130,8 +141,7 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
 	text_layer_set_text(xp_layer, xp);
 	snprintf(nextLvl, sizeof(nextLvl), "Next %i", xp_needed);	
 	text_layer_set_text(nextLvl_layer, nextLvl);
-	
-	handle_battery(battery_state_service_peek());
+
 	if (units_changed & MONTH_UNIT) {
 		static char date_text[20];
 		strftime(date_text, sizeof(date_text), date_format, tick_time);
@@ -161,20 +171,8 @@ void update_date_text(){
 static void handle_bluetooth(bool connected) {
    if (connected) {
     vibes_enqueue_custom_pattern(BLUETOOTH_CONNECT_VIBE);
-	gbitmap_destroy(connect);	
-	if (connect) {
-    	free(connect);
-    }   
-	connect = gbitmap_create_with_resource(RESOURCE_ID_CONNECTED);	
-    bitmap_layer_set_bitmap(connect_layer, connect);   
   } else{
     vibes_enqueue_custom_pattern(BLUETOOTH_DISCONNECT_VIBE);
-	gbitmap_destroy(connect);	
-	   if (connect) {
-    	free(connect);
-    } 
-	connect = gbitmap_create_with_resource(RESOURCE_ID_DISCONNECTED);	
-    bitmap_layer_set_bitmap(connect_layer, connect);   
   }
 }
 
@@ -211,11 +209,11 @@ static void do_init(void) {
   bitmap_layer_set_alignment(image_layer, GAlignCenter);
   layer_add_child(root_layer, bitmap_layer_get_layer(image_layer));
 	
-  connect = gbitmap_create_with_resource(RESOURCE_ID_CONNECTED);	
-  connect_layer = bitmap_layer_create(GRect(3, 26, frame.size.w, 100));	
-  bitmap_layer_set_bitmap(connect_layer, connect);
-  bitmap_layer_set_alignment(connect_layer, GAlignCenter);
-  layer_add_child(root_layer, bitmap_layer_get_layer(connect_layer));	
+  vaultBoy = gbitmap_create_with_resource(RESOURCE_ID_VAULT_BOY);	
+  vaultBoy_layer = bitmap_layer_create(GRect(3, 26, frame.size.w, 100));	
+  bitmap_layer_set_bitmap(vaultBoy_layer, vaultBoy);
+  bitmap_layer_set_alignment(vaultBoy_layer, GAlignCenter);
+  layer_add_child(root_layer, bitmap_layer_get_layer(vaultBoy_layer));	
 	
   time_layer = text_layer_create(GRect(-8, 133, frame.size.w , 34));
   text_layer_set_text_color(time_layer, GColorWhite);
@@ -261,6 +259,7 @@ static void do_init(void) {
 	
   time_t now = time(NULL);
   struct tm *current_time = localtime(&now);
+  handle_battery(battery_state_service_peek());
   handle_second_tick(current_time, SECOND_UNIT);
   tick_timer_service_subscribe(MINUTE_UNIT, &handle_second_tick);
   battery_state_service_subscribe(&handle_battery);
@@ -295,10 +294,10 @@ static void do_deinit(void) {
   
   bitmap_layer_destroy(image_layer);
   gbitmap_destroy(image);
-  bitmap_layer_destroy(connect_layer);
-  gbitmap_destroy(connect);	
-	if (connect) {
-    	free(connect);
+  bitmap_layer_destroy(vaultBoy_layer);
+  gbitmap_destroy(vaultBoy);	
+	if (vaultBoy) {
+    	free(vaultBoy);
     } 
 	if (image_layer) {
     	free(image_layer);
