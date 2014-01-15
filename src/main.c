@@ -35,6 +35,11 @@ const VibePattern BLUETOOTH_CONNECT_VIBE = {
   .durations = (uint32_t []) {100, 85, 100},
   .num_segments = 3
 };
+//X = MULT * L * L - MULT * L
+static int getXpForNextLvl() {
+	int nextLvl = lvl_counter + 1;
+	return xp_multiplier * nextLvl * nextLvl  - xp_multiplier * nextLvl;
+}
 
 float my_sqrt(float num) {
   float a, p, e = 0.001, b;
@@ -48,6 +53,11 @@ float my_sqrt(float num) {
   }
   return a;
 }
+
+static int getCurrentLvlFromXP() {
+	return (int)((xp_multiplier + my_sqrt(xp_multiplier * xp_multiplier - 4 * xp_multiplier * (-xp_counter) ))/ (2 * xp_multiplier));
+}
+
 
 
 static void handle_battery(BatteryChargeState charge_state) {
@@ -82,7 +92,7 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
   }
  
 	accel_service_peek(&accel);
-	static char xp[15];
+	static char xp[30];
 	static char lvl[10];
 	fap_timer++;
 	
@@ -108,12 +118,13 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
 		fap_timer = 0;
 		fap_detection = 0;  
 	}
-	
-	lvl_counter = (int)((xp_multiplier + my_sqrt(xp_multiplier * xp_multiplier - 4 * xp_multiplier * (-xp_counter) ))/ (2 * xp_multiplier));
+	if(xp_counter >= xp_needed) {
+		lvl_counter++;
+		xp_needed = getXpForNextLvl();
+	}
 	snprintf(lvl, sizeof(lvl), "Level %i", lvl_counter);	
 	text_layer_set_text(lvl_layer, lvl);
-	xp_needed = xp_multiplier * ((lvl_counter + 1 ) * 2) * (lvl_counter + 1 ) - xp_multiplier * (lvl_counter + 1 );
-	snprintf(xp, sizeof(xp), "XP %i", xp_counter);	
+	snprintf(xp, sizeof(xp), "XP %i/%i", xp_counter,xp_needed);	
 	text_layer_set_text(xp_layer, xp);
 	
 	handle_battery(battery_state_service_peek());
@@ -177,8 +188,8 @@ static void do_init(void) {
   }else{
 	xp_counter = 0;
   }
-  lvl_counter = (int)((xp_multiplier + my_sqrt(xp_multiplier * xp_multiplier - 4 * xp_multiplier * (-xp_needed) ))/ (2 * xp_multiplier));
-  xp_needed = xp_multiplier * (lvl_counter + 1 ) * (lvl_counter + 1 ) - xp_multiplier * (lvl_counter + 1 );
+  lvl_counter = getCurrentLvlFromXP();
+  xp_needed = getXpForNextLvl();
   fap_detection = 0;
   fap_timer = 0;
   x_max = 25;
