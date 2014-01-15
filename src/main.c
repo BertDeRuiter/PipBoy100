@@ -17,14 +17,15 @@ static TextLayer *lvl_layer;
 
 static BitmapLayer *image_layer;
 static BitmapLayer *vaultBoy_layer;
-static int xp_counter;
-static int xp_needed;
-static int xp_multiplier;
-static int lvl_counter;
-static int fap_detection;
-static int fap_timer;
-static int x_max;
+static uint64_t xp_counter;
+static uint64_t xp_needed;
+static uint8_t xp_multiplier;
+static uint32_t lvl_counter;
+static uint8_t fap_detection;
+static uint8_t fap_timer;
+static uint8_t x_max;
 static uint16_t lastMagnitude;
+static uint32_t lastXp;
 	
 static GBitmap *image;
 static GBitmap *vaultBoy;
@@ -185,11 +186,11 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
 		lvl_counter++;
 		xp_needed = getXpForNextLvl();
 	}
-	snprintf(lvl, sizeof(lvl), "Level %i", lvl_counter);	
+	snprintf(lvl, sizeof(lvl), "Level %lu", lvl_counter);	
 	text_layer_set_text(lvl_layer, lvl);
-	snprintf(xp, sizeof(xp), "XP    %i", xp_counter);	
+	snprintf(xp, sizeof(xp), "XP    %lld", xp_counter);	
 	text_layer_set_text(xp_layer, xp);
-	snprintf(nextLvl, sizeof(nextLvl), "Next %i", xp_needed);	
+	snprintf(nextLvl, sizeof(nextLvl), "Next %lld", xp_needed);	
 	text_layer_set_text(nextLvl_layer, nextLvl);
 
 }
