@@ -1,4 +1,5 @@
-// Standard includes
+//Copyright 2013 Bert de Ruiter (www.bertderuiter.nl/)
+
 #include "pebble.h"
 
 #define PIPEXP 0	
@@ -107,6 +108,7 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
 		fap_timer = 0;
 		fap_detection = 0;  
 	}
+	
 	lvl_counter = (int)((xp_multiplier + my_sqrt(xp_multiplier * xp_multiplier - 4 * xp_multiplier * (-xp_counter) ))/ (2 * xp_multiplier));
 	snprintf(lvl, sizeof(lvl), "Level %i", lvl_counter);	
 	text_layer_set_text(lvl_layer, lvl);
@@ -200,7 +202,7 @@ static void do_init(void) {
   bitmap_layer_set_alignment(connect_layer, GAlignCenter);
   layer_add_child(root_layer, bitmap_layer_get_layer(connect_layer));	
 	
-    time_layer = text_layer_create(GRect(-8, 133, frame.size.w , 34));
+  time_layer = text_layer_create(GRect(-8, 133, frame.size.w , 34));
   text_layer_set_text_color(time_layer, GColorWhite);
   text_layer_set_background_color(time_layer, GColorClear);
   text_layer_set_font(time_layer, fonts_get_system_font(FONT_KEY_GOTHIC_28_BOLD));
@@ -241,8 +243,6 @@ static void do_init(void) {
   battery_state_service_subscribe(&handle_battery);
   bluetooth_connection_service_subscribe(&handle_bluetooth);
   accel_data_service_subscribe(0, &handle_accel);
-  //accel_service_set_sampling_rate(25);	
-
   
   layer_add_child(root_layer, text_layer_get_layer(time_layer));
   layer_add_child(root_layer, text_layer_get_layer(battery_layer));
