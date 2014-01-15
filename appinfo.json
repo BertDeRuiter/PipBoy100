@@ -1,0 +1,40 @@
+{
+    "versionLabel": "2.33",
+    "uuid": "1fb4a901-0c56-427d-a53e-3f423c8b589e",
+    "appKeys": {},
+    "longName": "Pip Boy 100",
+    "versionCode": 6,
+    "capabilities": [
+        ""
+    ],
+    "shortName": "Pip Boy 100",
+    "companyName": "Bert de Ruiter",
+    "watchapp": {
+        "watchface": true
+    },
+    "resources": {
+        "media": [
+            {
+                "menuIcon": true,
+                "type": "png",
+                "name": "ICON",
+                "file": "images/icon.png"
+            },
+            {
+                "type": "png",
+                "name": "CONNECTED",
+                "file": "images/connected.png"
+            },
+            {
+                "type": "png",
+                "name": "DISCONNECTED",
+                "file": "images/disconnected.png"
+            },
+            {
+                "type": "png",
+                "name": "BACKGROUND",
+                "file": "images/pipboy_bg.png"
+            }
+        ]
+    }
+}
