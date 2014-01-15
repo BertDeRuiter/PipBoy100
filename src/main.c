@@ -130,6 +130,8 @@ static uint32_t positive(int val) {
 }
 
 static uint16_t getAccelMagnitude(AccelData *data) {
+	if(data->z < 1200)
+		return 500;
 	return my_sqrt((data->x * data->x) + (data->y * data->y) + (data->z * data->z));
 }
 
@@ -346,11 +348,11 @@ static void do_init(void) {
   time_t now = time(NULL);
   struct tm *current_time = localtime(&now);
   handle_battery(battery_state_service_peek());
+  accel_data_service_subscribe(0, &handle_accel);
   handle_second_tick(current_time, SECOND_UNIT);
   tick_timer_service_subscribe(MINUTE_UNIT, &handle_second_tick);
   battery_state_service_subscribe(&handle_battery);
   bluetooth_connection_service_subscribe(&handle_bluetooth);
-  accel_data_service_subscribe(0, &handle_accel);
   
   layer_add_child(root_layer, text_layer_get_layer(time_layer));
   layer_add_child(root_layer, text_layer_get_layer(battery_layer));
