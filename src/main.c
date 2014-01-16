@@ -193,7 +193,7 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
 		}
 	}
 	
-	if(units_changed & MINUTE_UNIT) {
+	if(units_changed & HOUR_UNIT) {
 		vaultBoy_status();
 	}
 	
@@ -365,7 +365,7 @@ static void do_init(void) {
   handle_battery(battery_state_service_peek());
   accel_data_service_subscribe(0, &handle_accel);
   handle_second_tick(current_time, SECOND_UNIT);
-  tick_timer_service_subscribe(SECOND_UNIT, &handle_second_tick);
+  tick_timer_service_subscribe(MINUTE_UNIT, &handle_second_tick);
   battery_state_service_subscribe(&handle_battery);
   bluetooth_connection_service_subscribe(&handle_bluetooth);
   
