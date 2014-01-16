@@ -2,29 +2,43 @@
 
 #include "pebble.h"
 
-#define PIPEXP 0	
+#define PIPEXP 0
+#define PIPE_LAST_XP 1
+#define PIPE_LAST_GAIN 2
+#define PIPE_CURRENT_CRIPPLED 3
+		
 #define SQRT_MAX_STEPS 40
 
+#define MAX_CRIPPLED 8
 
-Window *window; 
-TextLayer *time_layer; 
-TextLayer *date_layer;
-TextLayer *battery_layer;
-TextLayer *xp_layer;
-TextLayer *lvl_layer;
+
+static Window *window; 
+static TextLayer *time_layer; 
+static TextLayer *date_layer;
+static TextLayer *battery_layer;
+static TextLayer *xp_layer;
+static TextLayer *nextLvl_layer;
+static TextLayer *lvl_layer;
 
 static BitmapLayer *image_layer;
-static BitmapLayer *connect_layer;
-static int xp_counter;
-static int xp_needed;
-static int xp_multiplier;
-static int lvl_counter;
-static int fap_detection;
-static int fap_timer;
-static int x_max;
+static BitmapLayer *vaultBoy_layer;
+static uint64_t xp_counter;
+static uint64_t xp_needed;
+static uint8_t xp_multiplier;
+static uint32_t lvl_counter;
+static uint8_t fap_detection;
+static uint8_t fap_timer;
+static uint8_t x_max;
+static uint16_t lastMagnitude;
+static uint32_t lastXp = 0;
+static uint32_t lastGain = 0;
 	
 static GBitmap *image;
-static GBitmap *connect;
+static GBitmap *vaultBoy;
+static uint8_t currentVaultBoy = RESOURCE_ID_VAULT_BOY;
+
+static uint8_t loadedImage = 0;
+static bool dead = false;
 
 const VibePattern BLUETOOTH_DISCONNECT_VIBE = {
   .durations = (uint32_t []) {100, 85, 100, 85, 100},
@@ -35,6 +49,11 @@ const VibePattern BLUETOOTH_CONNECT_VIBE = {
   .durations = (uint32_t []) {100, 85, 100},
   .num_segments = 3
 };
+//X = MULT * L * L - MULT * L
+static int getXpForNextLvl() {
+	int nextLvl = lvl_counter + 1;
+	return xp_multiplier * nextLvl * nextLvl  - xp_multiplier * nextLvl;
+}
 
 float my_sqrt(float num) {
   float a, p, e = 0.001, b;
@@ -49,6 +68,48 @@ float my_sqrt(float num) {
   return a;
 }
 
+static int getCurrentLvlFromXP() {
+	return (int)((xp_multiplier + my_sqrt(xp_multiplier * xp_multiplier - 4 * xp_multiplier * (-xp_counter) ))/ (2 * xp_multiplier));
+}
+
+static void loadVaultBoyState(uint8_t ressource) {
+	APP_LOG(APP_LOG_LEVEL_DEBUG,"Load image %i",ressource);
+	if (vaultBoy) {
+		APP_LOG(APP_LOG_LEVEL_DEBUG, "Pointer instancied");
+			if(ressource == loadedImage) {
+				APP_LOG(APP_LOG_LEVEL_DEBUG, "Same image %i", loadedImage);
+				return;
+			}
+		APP_LOG(APP_LOG_LEVEL_DEBUG,"Unload image %i",loadedImage);
+		gbitmap_destroy(vaultBoy);	
+    	free(vaultBoy);
+    }
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "Load image to layer");   
+	vaultBoy = gbitmap_create_with_resource(ressource);	
+    bitmap_layer_set_bitmap(vaultBoy_layer, vaultBoy); 
+    loadedImage = ressource;  
+}
+
+static void vaultBoy_status() {
+	uint64_t currentGain = xp_counter - lastXp;
+	if(currentGain < lastGain) {
+		currentVaultBoy++;
+		if(currentVaultBoy == (MAX_CRIPPLED + 1)) {
+			dead = true;
+			loadVaultBoyState(RESOURCE_ID_DEAD);
+			currentVaultBoy = RESOURCE_ID_VAULT_BOY;
+		} else {
+			loadVaultBoyState(currentVaultBoy);
+		}
+	} else if(!dead && currentVaultBoy > RESOURCE_ID_VAULT_BOY) {
+		loadVaultBoyState(--currentVaultBoy);
+	}
+	lastGain = currentGain;
+	lastXp = xp_counter;
+	persist_write_int(PIPE_LAST_GAIN,lastGain);
+	persist_write_int(PIPE_LAST_XP,lastXp);
+	persist_write_int(PIPE_CURRENT_CRIPPLED,currentVaultBoy);
+}
 
 static void handle_battery(BatteryChargeState charge_state) {
   static char battery_text[10];
@@ -61,13 +122,25 @@ static void handle_battery(BatteryChargeState charge_state) {
   text_layer_set_text(battery_layer, battery_text);
 }
 
+static uint32_t positive(int val) {
+	if(val < 0)
+		return val *-1;
+	else 
+		return val;
+}
+
+static uint16_t getAccelMagnitude(AccelData *data) {
+	if(data->z < 1200)
+		return 500;
+	return my_sqrt((data->x * data->x) + (data->y * data->y) + (data->z * data->z));
+}
 
 static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
-  static char time_text[6]; 
-  char *time_format;
-  char *date_format;
+	static char time_text[6]; 
+	char *time_format;
+	char *date_format;
 	
-  if (clock_is_24h_style()) {
+	if (clock_is_24h_style()) {
     	time_format = "%R";
 		date_format = "%d-%m-%Y";
     } else {
@@ -75,14 +148,39 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
 		date_format = "%m-%d-%Y";
     }
 	
-  AccelData accel;
-  if(units_changed & SECOND_UNIT){
-	strftime(time_text, sizeof(time_text), time_format, tick_time);
-	 	text_layer_set_text(time_layer, time_text);
-  }
- 
+	if(units_changed & SECOND_UNIT){
+		strftime(time_text, sizeof(time_text), time_format, tick_time);
+		text_layer_set_text(time_layer, time_text);
+	}
+	
+	if(units_changed & HOUR_UNIT) {
+		vaultBoy_status();
+	}
+	
+  	if (units_changed & MONTH_UNIT) {
+		static char date_text[20];
+		strftime(date_text, sizeof(date_text), date_format, tick_time);
+		text_layer_set_text(date_layer, date_text);
+	}else if(units_changed & DAY_UNIT){
+		static char date_text[20];
+		strftime(date_text, sizeof(date_text), date_format, tick_time);
+		text_layer_set_text(date_layer, date_text);
+	}
+	
+	if(dead) {
+		dead = rand() %2;
+		if(!dead) {
+			loadVaultBoyState(currentVaultBoy);
+			currentVaultBoy = RESOURCE_ID_VAULT_BOY;
+		} else {
+			return;
+		}
+	}
+	
+	AccelData accel;
 	accel_service_peek(&accel);
 	static char xp[15];
+	static char nextLvl[15];
 	static char lvl[10];
 	fap_timer++;
 	
@@ -97,10 +195,17 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
 			x_max = 25;
 		}	
 	}
+	APP_LOG(APP_LOG_LEVEL_DEBUG,"Accel : (%i,%i,%i)",accel.x,accel.y,accel.z);
+	
+	if(fap_detection == 1) {
+		lastMagnitude = getAccelMagnitude(&accel);
+	}
 	
 	if(fap_detection == 2 && fap_timer <= 10){
-		int increase = rand() % 10;
-		xp_counter = xp_counter + ((increase+1)*2);
+		uint16_t modulo = positive(lastMagnitude - getAccelMagnitude(&accel)) + 10;
+		uint16_t increase = (rand() % modulo) + 1;
+		APP_LOG(APP_LOG_LEVEL_DEBUG,"Add xp %i%%%i", increase,modulo);
+		xp_counter += increase;
 		persist_write_int(PIPEXP, xp_counter);
 		fap_timer = 0;
 		fap_detection = 0;  
@@ -109,23 +214,18 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
 		fap_detection = 0;  
 	}
 	
-	lvl_counter = (int)((xp_multiplier + my_sqrt(xp_multiplier * xp_multiplier - 4 * xp_multiplier * (-xp_counter) ))/ (2 * xp_multiplier));
-	snprintf(lvl, sizeof(lvl), "Level %i", lvl_counter);	
-	text_layer_set_text(lvl_layer, lvl);
-	xp_needed = xp_multiplier * ((lvl_counter + 1 ) * 2) * (lvl_counter + 1 ) - xp_multiplier * (lvl_counter + 1 );
-	snprintf(xp, sizeof(xp), "XP %i", xp_counter);	
-	text_layer_set_text(xp_layer, xp);
 	
-	handle_battery(battery_state_service_peek());
-	if (units_changed & MONTH_UNIT) {
-		static char date_text[20];
-		strftime(date_text, sizeof(date_text), date_format, tick_time);
-		text_layer_set_text(date_layer, date_text);
-	}else if(units_changed & DAY_UNIT){
-		static char date_text[20];
-		strftime(date_text, sizeof(date_text), date_format, tick_time);
-		text_layer_set_text(date_layer, date_text);
+	if(xp_counter >= xp_needed) {
+		lvl_counter++;
+		xp_needed = getXpForNextLvl();
 	}
+	snprintf(lvl, sizeof(lvl), "Level %lu", lvl_counter);	
+	text_layer_set_text(lvl_layer, lvl);
+	snprintf(xp, sizeof(xp), "XP    %lld", xp_counter);	
+	text_layer_set_text(xp_layer, xp);
+	snprintf(nextLvl, sizeof(nextLvl), "Next %lld", xp_needed);	
+	text_layer_set_text(nextLvl_layer, nextLvl);
+
 }
 
 void update_date_text(){
@@ -146,20 +246,8 @@ void update_date_text(){
 static void handle_bluetooth(bool connected) {
    if (connected) {
     vibes_enqueue_custom_pattern(BLUETOOTH_CONNECT_VIBE);
-	gbitmap_destroy(connect);	
-	if (connect) {
-    	free(connect);
-    }   
-	connect = gbitmap_create_with_resource(RESOURCE_ID_CONNECTED);	
-    bitmap_layer_set_bitmap(connect_layer, connect);   
   } else{
     vibes_enqueue_custom_pattern(BLUETOOTH_DISCONNECT_VIBE);
-	gbitmap_destroy(connect);	
-	   if (connect) {
-    	free(connect);
-    } 
-	connect = gbitmap_create_with_resource(RESOURCE_ID_DISCONNECTED);	
-    bitmap_layer_set_bitmap(connect_layer, connect);   
   }
 }
 
@@ -177,8 +265,21 @@ static void do_init(void) {
   }else{
 	xp_counter = 0;
   }
-  lvl_counter = (int)((xp_multiplier + my_sqrt(xp_multiplier * xp_multiplier - 4 * xp_multiplier * (-xp_needed) ))/ (2 * xp_multiplier));
-  xp_needed = xp_multiplier * (lvl_counter + 1 ) * (lvl_counter + 1 ) - xp_multiplier * (lvl_counter + 1 );
+  
+  if(persist_exists(PIPE_LAST_XP)) {
+	  lastXp = persist_read_int(PIPE_LAST_XP);
+  }
+  
+  if(persist_exists(PIPE_LAST_GAIN)) {
+	  lastGain = persist_read_int(PIPE_LAST_GAIN);
+  }
+  
+  if(persist_exists(PIPE_CURRENT_CRIPPLED)) {
+	  currentVaultBoy = persist_read_int(PIPE_CURRENT_CRIPPLED);
+  }
+  
+  lvl_counter = getCurrentLvlFromXP();
+  xp_needed = getXpForNextLvl();
   fap_detection = 0;
   fap_timer = 0;
   x_max = 25;
@@ -196,11 +297,11 @@ static void do_init(void) {
   bitmap_layer_set_alignment(image_layer, GAlignCenter);
   layer_add_child(root_layer, bitmap_layer_get_layer(image_layer));
 	
-  connect = gbitmap_create_with_resource(RESOURCE_ID_CONNECTED);	
-  connect_layer = bitmap_layer_create(GRect(3, 26, frame.size.w, 100));	
-  bitmap_layer_set_bitmap(connect_layer, connect);
-  bitmap_layer_set_alignment(connect_layer, GAlignCenter);
-  layer_add_child(root_layer, bitmap_layer_get_layer(connect_layer));	
+  vaultBoy_layer = bitmap_layer_create(GRect(3, 26, frame.size.w, 100));
+  loadVaultBoyState(currentVaultBoy);		
+  bitmap_layer_set_bitmap(vaultBoy_layer, vaultBoy);
+  bitmap_layer_set_alignment(vaultBoy_layer, GAlignCenter);
+  layer_add_child(root_layer, bitmap_layer_get_layer(vaultBoy_layer));	
 	
   time_layer = text_layer_create(GRect(-8, 133, frame.size.w , 34));
   text_layer_set_text_color(time_layer, GColorWhite);
@@ -222,12 +323,20 @@ static void do_init(void) {
   text_layer_set_text_alignment(date_layer, GTextAlignmentLeft);
   text_layer_set_text(date_layer, "1-1-2013");
 	
-  xp_layer = text_layer_create(GRect(8, 146, frame.size.w, 34));
+  xp_layer = text_layer_create(GRect(8, 133, frame.size.w, 34));
   text_layer_set_text_color(xp_layer, GColorWhite);
   text_layer_set_background_color(xp_layer, GColorClear);
   text_layer_set_font(xp_layer, fonts_get_system_font(FONT_KEY_GOTHIC_14));
   text_layer_set_text_alignment(xp_layer, GTextAlignmentLeft);
-  text_layer_set_text(xp_layer, "XP");	
+  text_layer_set_text(xp_layer, "XP");
+  
+  
+  nextLvl_layer = text_layer_create(GRect(8, 146, frame.size.w, 34));
+  text_layer_set_text_color(nextLvl_layer, GColorWhite);
+  text_layer_set_background_color(nextLvl_layer, GColorClear);
+  text_layer_set_font(nextLvl_layer, fonts_get_system_font(FONT_KEY_GOTHIC_14));
+  text_layer_set_text_alignment(nextLvl_layer, GTextAlignmentLeft);
+  text_layer_set_text(nextLvl_layer, "Next");		
 	
   lvl_layer = text_layer_create(GRect(0, 121, frame.size.w, 34));
   text_layer_set_text_color(lvl_layer, GColorWhite);
@@ -238,16 +347,18 @@ static void do_init(void) {
 	
   time_t now = time(NULL);
   struct tm *current_time = localtime(&now);
+  handle_battery(battery_state_service_peek());
+  accel_data_service_subscribe(0, &handle_accel);
   handle_second_tick(current_time, SECOND_UNIT);
   tick_timer_service_subscribe(MINUTE_UNIT, &handle_second_tick);
   battery_state_service_subscribe(&handle_battery);
   bluetooth_connection_service_subscribe(&handle_bluetooth);
-  accel_data_service_subscribe(0, &handle_accel);
   
   layer_add_child(root_layer, text_layer_get_layer(time_layer));
   layer_add_child(root_layer, text_layer_get_layer(battery_layer));
   layer_add_child(root_layer, text_layer_get_layer(date_layer));
   layer_add_child(root_layer, text_layer_get_layer(xp_layer));
+  layer_add_child(root_layer, text_layer_get_layer(nextLvl_layer));
   layer_add_child(root_layer, text_layer_get_layer(lvl_layer));	
  
   update_date_text();
@@ -257,6 +368,9 @@ static void do_init(void) {
 
 static void do_deinit(void) {
   persist_write_int(PIPEXP, xp_counter);
+  persist_write_int(PIPE_LAST_XP, lastXp);
+  persist_write_int(PIPE_LAST_GAIN,lastGain);
+  persist_write_int(PIPE_CURRENT_CRIPPLED,currentVaultBoy);
   tick_timer_service_unsubscribe();
   battery_state_service_unsubscribe();
   bluetooth_connection_service_unsubscribe();
@@ -267,13 +381,14 @@ static void do_deinit(void) {
   text_layer_destroy(date_layer);
   text_layer_destroy(xp_layer);
   text_layer_destroy(lvl_layer);
+  text_layer_destroy(nextLvl_layer);
   
   bitmap_layer_destroy(image_layer);
   gbitmap_destroy(image);
-  bitmap_layer_destroy(connect_layer);
-  gbitmap_destroy(connect);	
-	if (connect) {
-    	free(connect);
+  bitmap_layer_destroy(vaultBoy_layer);
+  gbitmap_destroy(vaultBoy);	
+	if (vaultBoy) {
+    	free(vaultBoy);
     } 
 	if (image_layer) {
     	free(image_layer);

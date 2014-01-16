@@ -1,9 +1,9 @@
 {
-    "versionLabel": "2.33",
+    "versionLabel": "2.40",
     "uuid": "1fb4a901-0c56-427d-a53e-3f423c8b589e",
     "appKeys": {},
     "longName": "Pip Boy 100",
-    "versionCode": 6,
+    "versionCode": 7,
     "capabilities": [
         ""
     ],
@@ -22,19 +22,45 @@
             },
             {
                 "type": "png",
-                "name": "CONNECTED",
-                "file": "images/connected.png"
-            },
-            {
-                "type": "png",
-                "name": "DISCONNECTED",
-                "file": "images/disconnected.png"
-            },
-            {
-                "type": "png",
                 "name": "BACKGROUND",
                 "file": "images/pipboy_bg.png"
+            },
+            {
+                "type": "png",
+                "name": "VAULT_BOY",
+                "file": "images/vault_boy.png"
+            },
+            {
+                "type": "png",
+                "name": "CRIPPLED_1",
+                "file": "images/crippled1.png"
+            },
+            {
+                "type": "png",
+                "name": "CRIPPLED_2",
+                "file": "images/crippled2.png"
+            },
+            {
+                "type": "png",
+                "name": "CRIPPLED_3",
+                "file": "images/crippled3.png"
+            },
+            {
+                "type": "png",
+                "name": "CRIPPLED_4",
+                "file": "images/crippled4.png"
+            },
+            {
+                "type": "png",
+                "name": "CRIPPLED_5",
+                "file": "images/crippled5.png"
+            },
+            {
+                "type": "png",
+                "name": "DEAD",
+                "file": "images/dead.png"
             }
+            
         ]
     }
 }
