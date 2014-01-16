@@ -31,9 +31,10 @@ static uint32_t lvl_counter;
 static uint8_t fap_detection;
 static uint8_t fap_timer;
 static uint8_t x_max;
-static uint16_t lastMagnitude;
 static uint32_t lastXp = 0;
 static uint32_t lastGain = 0;
+
+static AccelData *lastAccel;
 	
 static GBitmap *image;
 static GBitmap *vaultBoy;
@@ -216,11 +217,15 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
 	APP_LOG(APP_LOG_LEVEL_DEBUG,"Accel : (%i,%i,%i)",accel.x,accel.y,accel.z);
 	
 	if(fap_detection == 1) {
-		lastMagnitude = getAccelMagnitude(&accel);
+		lastAccel = &accel;
 	}
 	
 	if(fap_detection == 2 && fap_timer <= 10){
-		uint16_t modulo = positive(getAccelMagnitude(&accel) - lastMagnitude) + 10;
+		accel.x -= lastAccel->x;
+		accel.y -= lastAccel->y;
+		accel.z -= lastAccel->z;
+		uint16_t modulo = getAccelMagnitude(&accel) + 10;
+		free(lastAccel);
 		if(modulo > 1000)
 			modulo = 20;
 		uint16_t increase = (rand() % modulo) + 1;
