@@ -8,6 +8,8 @@
 #define PIPE_CURRENT_CRIPPLED 3
 		
 #define SQRT_MAX_STEPS 40
+//Lose 45% of XP
+#define XP_LOSS 0.55
 
 #define MAX_CRIPPLED 8
 
@@ -22,7 +24,7 @@ static TextLayer *lvl_layer;
 
 static BitmapLayer *image_layer;
 static BitmapLayer *vaultBoy_layer;
-static uint64_t xp_counter;
+static uint64_t xp_counter = 0;
 static uint64_t xp_needed;
 static uint8_t xp_multiplier;
 static uint32_t lvl_counter;
@@ -71,7 +73,18 @@ float my_sqrt(float num) {
 static int getCurrentLvlFromXP() {
 	return (int)((xp_multiplier + my_sqrt(xp_multiplier * xp_multiplier - 4 * xp_multiplier * (-xp_counter) ))/ (2 * xp_multiplier));
 }
-
+static void updateLvlXpLayers() {
+	static char xp[15];
+	static char nextLvl[15];
+	static char lvl[10];
+	
+	snprintf(lvl, sizeof(lvl), "Level %lu", lvl_counter);	
+	text_layer_set_text(lvl_layer, lvl);
+	snprintf(xp, sizeof(xp), "XP    %lld", xp_counter);	
+	text_layer_set_text(xp_layer, xp);
+	snprintf(nextLvl, sizeof(nextLvl), "Next %lld", xp_needed);	
+	text_layer_set_text(nextLvl_layer, nextLvl);
+}
 static void loadVaultBoyState(uint8_t ressource) {
 	APP_LOG(APP_LOG_LEVEL_DEBUG,"Load image %i",ressource);
 	if (vaultBoy) {
@@ -90,14 +103,24 @@ static void loadVaultBoyState(uint8_t ressource) {
     loadedImage = ressource;  
 }
 
+static void killVaultBoy() {
+	dead = true;
+	loadVaultBoyState(RESOURCE_ID_DEAD);
+	currentVaultBoy = RESOURCE_ID_VAULT_BOY;
+	xp_counter *= XP_LOSS;
+	lvl_counter = getCurrentLvlFromXP();
+	xp_needed = getXpForNextLvl();
+	updateLvlXpLayers();
+	vibes_long_pulse();
+	
+}
+
 static void vaultBoy_status() {
 	uint64_t currentGain = xp_counter - lastXp;
-	if(currentGain < lastGain) {
+	if(currentGain <= lastGain) {
 		currentVaultBoy++;
 		if(currentVaultBoy == (MAX_CRIPPLED + 1)) {
-			dead = true;
-			loadVaultBoyState(RESOURCE_ID_DEAD);
-			currentVaultBoy = RESOURCE_ID_VAULT_BOY;
+			killVaultBoy();
 		} else {
 			loadVaultBoyState(currentVaultBoy);
 		}
@@ -130,8 +153,6 @@ static uint32_t positive(int val) {
 }
 
 static uint16_t getAccelMagnitude(AccelData *data) {
-	if(data->z < 1200)
-		return 500;
 	return my_sqrt((data->x * data->x) + (data->y * data->y) + (data->z * data->z));
 }
 
@@ -153,7 +174,7 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
 		text_layer_set_text(time_layer, time_text);
 	}
 	
-	if(units_changed & HOUR_UNIT) {
+	if(units_changed & MINUTE_UNIT) {
 		vaultBoy_status();
 	}
 	
@@ -171,7 +192,6 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
 		dead = rand() %2;
 		if(!dead) {
 			loadVaultBoyState(currentVaultBoy);
-			currentVaultBoy = RESOURCE_ID_VAULT_BOY;
 		} else {
 			return;
 		}
@@ -179,9 +199,6 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
 	
 	AccelData accel;
 	accel_service_peek(&accel);
-	static char xp[15];
-	static char nextLvl[15];
-	static char lvl[10];
 	fap_timer++;
 	
 	if(x_max > 0){
@@ -202,7 +219,9 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
 	}
 	
 	if(fap_detection == 2 && fap_timer <= 10){
-		uint16_t modulo = positive(lastMagnitude - getAccelMagnitude(&accel)) + 10;
+		uint16_t modulo = positive(getAccelMagnitude(&accel) - lastMagnitude) + 10;
+		if(modulo > 1000)
+			modulo = 20;
 		uint16_t increase = (rand() % modulo) + 1;
 		APP_LOG(APP_LOG_LEVEL_DEBUG,"Add xp %i%%%i", increase,modulo);
 		xp_counter += increase;
@@ -219,12 +238,8 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
 		lvl_counter++;
 		xp_needed = getXpForNextLvl();
 	}
-	snprintf(lvl, sizeof(lvl), "Level %lu", lvl_counter);	
-	text_layer_set_text(lvl_layer, lvl);
-	snprintf(xp, sizeof(xp), "XP    %lld", xp_counter);	
-	text_layer_set_text(xp_layer, xp);
-	snprintf(nextLvl, sizeof(nextLvl), "Next %lld", xp_needed);	
-	text_layer_set_text(nextLvl_layer, nextLvl);
+	
+	updateLvlXpLayers();
 
 }
 
@@ -262,8 +277,6 @@ static void do_init(void) {
   xp_multiplier = 28;
   if(persist_exists(PIPEXP)){
 	xp_counter = persist_read_int(PIPEXP);
-  }else{
-	xp_counter = 0;
   }
   
   if(persist_exists(PIPE_LAST_XP)) {
@@ -276,6 +289,7 @@ static void do_init(void) {
   
   if(persist_exists(PIPE_CURRENT_CRIPPLED)) {
 	  currentVaultBoy = persist_read_int(PIPE_CURRENT_CRIPPLED);
+	  dead = (currentVaultBoy == RESOURCE_ID_DEAD);
   }
   
   lvl_counter = getCurrentLvlFromXP();
@@ -350,7 +364,7 @@ static void do_init(void) {
   handle_battery(battery_state_service_peek());
   accel_data_service_subscribe(0, &handle_accel);
   handle_second_tick(current_time, SECOND_UNIT);
-  tick_timer_service_subscribe(MINUTE_UNIT, &handle_second_tick);
+  tick_timer_service_subscribe(SECOND_UNIT, &handle_second_tick);
   battery_state_service_subscribe(&handle_battery);
   bluetooth_connection_service_subscribe(&handle_bluetooth);
   
