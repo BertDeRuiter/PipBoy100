@@ -174,10 +174,6 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
 		text_layer_set_text(time_layer, time_text);
 	}
 	
-	if(units_changed & MINUTE_UNIT) {
-		vaultBoy_status();
-	}
-	
   	if (units_changed & MONTH_UNIT) {
 		static char date_text[20];
 		strftime(date_text, sizeof(date_text), date_format, tick_time);
@@ -196,6 +192,11 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
 			return;
 		}
 	}
+	
+	if(units_changed & MINUTE_UNIT) {
+		vaultBoy_status();
+	}
+	
 	
 	AccelData accel;
 	accel_service_peek(&accel);
