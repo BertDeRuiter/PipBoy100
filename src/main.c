@@ -24,8 +24,8 @@ static TextLayer *lvl_layer;
 
 static BitmapLayer *image_layer;
 static BitmapLayer *vaultBoy_layer;
-static uint64_t xp_counter = 0;
-static uint64_t xp_needed;
+static uint32_t xp_counter = 0;
+static uint32_t xp_needed;
 static uint8_t xp_multiplier;
 static uint32_t lvl_counter;
 static uint8_t fap_detection;
@@ -80,9 +80,9 @@ static void updateLvlXpLayers() {
 	
 	snprintf(lvl, sizeof(lvl), "Level %lu", lvl_counter);	
 	text_layer_set_text(lvl_layer, lvl);
-	snprintf(xp, sizeof(xp), "XP    %lld", xp_counter);	
+	snprintf(xp, sizeof(xp), "XP    %lu", xp_counter);	
 	text_layer_set_text(xp_layer, xp);
-	snprintf(nextLvl, sizeof(nextLvl), "Next %lld", xp_needed);	
+	snprintf(nextLvl, sizeof(nextLvl), "Next %lu", xp_needed);	
 	text_layer_set_text(nextLvl_layer, nextLvl);
 }
 static void loadVaultBoyState(uint8_t ressource) {
