@@ -1,17 +1,8 @@
 //Copyright 2013 Bert de Ruiter (www.bertderuiter.nl/)
 
 #include "pebble.h"
+#include "config.h"
 
-#define PIPEXP 0
-#define PIPE_LAST_XP 1
-#define PIPE_LAST_GAIN 2
-#define PIPE_CURRENT_CRIPPLED 3
-		
-#define SQRT_MAX_STEPS 40
-//Lose 45% of XP
-#define XP_LOSS 0.55
-
-#define MAX_CRIPPLED 8
 
 
 static Window *window; 
@@ -28,13 +19,11 @@ static uint32_t xp_counter = 0;
 static uint32_t xp_needed;
 static uint8_t xp_multiplier;
 static uint32_t lvl_counter;
-static uint8_t fap_detection;
-static uint8_t fap_timer;
-static uint8_t x_max;
+static uint8_t fap_timer = 0;
 static uint32_t lastXp = 0;
 static uint32_t lastGain = 0;
 
-static AccelData *lastAccel;
+static AccelData totalAccel = {0,0,0,0,0};
 	
 static GBitmap *image;
 static GBitmap *vaultBoy;
@@ -43,15 +32,7 @@ static uint8_t currentVaultBoy = RESOURCE_ID_VAULT_BOY;
 static uint8_t loadedImage = 0;
 static bool dead = false;
 
-const VibePattern BLUETOOTH_DISCONNECT_VIBE = {
-  .durations = (uint32_t []) {100, 85, 100, 85, 100},
-  .num_segments = 5
-};
 
-const VibePattern BLUETOOTH_CONNECT_VIBE = {
-  .durations = (uint32_t []) {100, 85, 100},
-  .num_segments = 3
-};
 //X = MULT * L * L - MULT * L
 static int getXpForNextLvl() {
 	int nextLvl = lvl_counter + 1;
@@ -74,17 +55,44 @@ float my_sqrt(float num) {
 static int getCurrentLvlFromXP() {
 	return (int)((xp_multiplier + my_sqrt(xp_multiplier * xp_multiplier - 4 * xp_multiplier * (-xp_counter) ))/ (2 * xp_multiplier));
 }
-static void updateLvlXpLayers() {
+
+static void updateXpLayer() {
 	static char xp[15];
+	snprintf(xp, sizeof(xp), "XP    %lu", xp_counter);	
+	text_layer_set_text(xp_layer, xp);
+}
+static void updateLvlNextLayers() {	
 	static char nextLvl[15];
 	static char lvl[10];
 	
 	snprintf(lvl, sizeof(lvl), "Level %lu", lvl_counter);	
 	text_layer_set_text(lvl_layer, lvl);
-	snprintf(xp, sizeof(xp), "XP    %lu", xp_counter);	
-	text_layer_set_text(xp_layer, xp);
 	snprintf(nextLvl, sizeof(nextLvl), "Next %lu", xp_needed);	
 	text_layer_set_text(nextLvl_layer, nextLvl);
+}
+
+static uint16_t getModulo(AccelData *data) {
+	uint16_t smallest;
+	uint8_t nbAccel = fap_timer + 1;
+	uint16_t avgX = totalAccel.x/nbAccel;
+	uint16_t avgY = totalAccel.y/nbAccel;
+	uint16_t avgZ = totalAccel.z/nbAccel;
+	
+	avgX = DIVERG(avgX,data->x);
+	avgY = DIVERG(avgY,data->y);
+	avgZ = DIVERG(avgZ,data->z);
+	
+	smallest = avgX;
+	
+	if(avgY < smallest) {
+		smallest = avgY;
+	}
+	if(avgZ < smallest) {
+		smallest = avgZ;
+	}
+	
+	APP_LOG(APP_LOG_LEVEL_DEBUG,"DIV : (%i,%i,%i)",avgX,avgY,avgZ);
+	return smallest;
 }
 static void loadVaultBoyState(uint8_t ressource) {
 	APP_LOG(APP_LOG_LEVEL_DEBUG,"Load image %i",ressource);
@@ -111,7 +119,8 @@ static void killVaultBoy() {
 	xp_counter *= XP_LOSS;
 	lvl_counter = getCurrentLvlFromXP();
 	xp_needed = getXpForNextLvl();
-	updateLvlXpLayers();
+	updateXpLayer();
+	updateLvlNextLayers();
 	vibes_long_pulse();
 	
 }
@@ -136,7 +145,7 @@ static void vaultBoy_status() {
 }
 
 static void handle_battery(BatteryChargeState charge_state) {
-  static char battery_text[10];
+  static char battery_text[15];
 
   if (charge_state.is_charging) {
     snprintf(battery_text, sizeof(battery_text), "resting");
@@ -144,17 +153,6 @@ static void handle_battery(BatteryChargeState charge_state) {
     snprintf(battery_text, sizeof(battery_text), "HP %d/100", charge_state.charge_percent);
   }
   text_layer_set_text(battery_layer, battery_text);
-}
-
-static uint32_t positive(int val) {
-	if(val < 0)
-		return val *-1;
-	else 
-		return val;
-}
-
-static uint16_t getAccelMagnitude(AccelData *data) {
-	return my_sqrt((data->x * data->x) + (data->y * data->y) + (data->z * data->z));
 }
 
 static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
@@ -201,51 +199,37 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
 	
 	AccelData accel;
 	accel_service_peek(&accel);
-	fap_timer++;
 	
-	if(x_max > 0){
-		if(accel.y > x_max || accel.z > x_max){
-			fap_detection++;
-			x_max = -25;
-		}	
-	}else{
-		if(accel.y < x_max || accel.z < x_max){
-			fap_detection++;
-			x_max = 25;
-		}	
-	}
 	APP_LOG(APP_LOG_LEVEL_DEBUG,"Accel : (%i,%i,%i)",accel.x,accel.y,accel.z);
 	
-	if(fap_detection == 1) {
-		lastAccel = &accel;
-	}
-	
-	if(fap_detection == 2 && fap_timer <= 10){
-		accel.x -= lastAccel->x;
-		accel.y -= lastAccel->y;
-		accel.z -= lastAccel->z;
-		uint16_t modulo = getAccelMagnitude(&accel) + 10;
-		free(lastAccel);
-		if(modulo > 1000)
-			modulo = 20;
+	if(ABS(accel.z) > 5000 || ABS(accel.x) > 5000 || ABS(accel.y) > 5000)
+		return;
+		
+	if(fap_timer > 1){
+		uint16_t modulo = getModulo(&accel) + 10;
 		uint16_t increase = (rand() % modulo) + 1;
 		APP_LOG(APP_LOG_LEVEL_DEBUG,"Add xp %i%%%i", increase,modulo);
 		xp_counter += increase;
 		persist_write_int(PIPEXP, xp_counter);
-		fap_timer = 0;
-		fap_detection = 0;  
-	}else if(fap_timer > 10){
-		fap_timer = 0;
-		fap_detection = 0;  
+		updateXpLayer();
 	}
-	
 	
 	if(xp_counter >= xp_needed) {
 		lvl_counter++;
 		xp_needed = getXpForNextLvl();
+		updateLvlNextLayers();
 	}
 	
-	updateLvlXpLayers();
+	fap_timer++;
+	
+	if(fap_timer == RESET_TOTAL_MIN) {
+		fap_timer = 0;
+		totalAccel = (AccelData){0,0,0,0,0};
+	}
+	
+	totalAccel.x += ABS(accel.x);
+	totalAccel.y += ABS(accel.y);
+	totalAccel.z += ABS(accel.z);
 
 }
 
@@ -298,11 +282,9 @@ static void do_init(void) {
 	  dead = (currentVaultBoy == RESOURCE_ID_DEAD);
   }
   
+  
   lvl_counter = getCurrentLvlFromXP();
   xp_needed = getXpForNextLvl();
-  fap_detection = 0;
-  fap_timer = 0;
-  x_max = 25;
 
   window = window_create();
   window_stack_push(window, true);
@@ -382,6 +364,8 @@ static void do_init(void) {
   layer_add_child(root_layer, text_layer_get_layer(lvl_layer));	
  
   update_date_text();
+  updateLvlNextLayers();
+  updateXpLayer();
 }
 
 
