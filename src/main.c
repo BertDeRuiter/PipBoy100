@@ -125,6 +125,17 @@ static void killVaultBoy() {
 }
 
 static void vaultBoy_status() {
+	
+	if(dead) {
+		return;
+	}
+	
+	if(battery_state_service_peek().is_charging  && currentVaultBoy > RESOURCE_ID_VAULT_BOY) {
+		loadVaultBoyState(--currentVaultBoy);
+		persist_write_int(PIPE_CURRENT_CRIPPLED,currentVaultBoy);
+		return;
+	}
+	
 	uint64_t currentGain = xp_counter - lastXp;
 	if(currentGain <= lastGain) {
 		currentVaultBoy++;
@@ -133,7 +144,7 @@ static void vaultBoy_status() {
 		} else {
 			loadVaultBoyState(currentVaultBoy);
 		}
-	} else if(!dead && currentVaultBoy > RESOURCE_ID_VAULT_BOY) {
+	} else if(currentVaultBoy > RESOURCE_ID_VAULT_BOY) {
 		loadVaultBoyState(--currentVaultBoy);
 	}
 	lastGain = currentGain;
