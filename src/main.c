@@ -185,6 +185,10 @@ static void setTimeLayers(struct tm* tick_time, TimeUnits units_changed) {
 }
 static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
 
+	if(!(units_changed & MINUTE_UNIT)) {
+		return;
+	}
+	
 	setTimeLayers(tick_time,units_changed);
 	
 	if(dead) {
