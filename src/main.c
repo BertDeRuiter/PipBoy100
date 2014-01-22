@@ -19,11 +19,10 @@ static uint32_t xp_counter = 0;
 static uint32_t xp_needed;
 static uint8_t xp_multiplier;
 static uint32_t lvl_counter;
-static uint8_t fap_timer = 0;
 static uint32_t lastXp = 0;
 static uint32_t lastGain = 0;
 
-static AccelData totalAccel = {0,0,0,0,0};
+static AccelTotal totalAccel = {0,0,0,0};
 	
 static GBitmap *image;
 static GBitmap *vaultBoy;
@@ -73,10 +72,10 @@ static void updateLvlNextLayers() {
 
 static uint16_t getModulo(AccelData *data) {
 	uint16_t smallest;
-	uint8_t nbAccel = fap_timer + 1;
-	uint16_t avgX = totalAccel.x/nbAccel;
-	uint16_t avgY = totalAccel.y/nbAccel;
-	uint16_t avgZ = totalAccel.z/nbAccel;
+	uint8_t nbAccel = totalAccel.total + 1;
+	uint16_t avgX = ABS(totalAccel.x/nbAccel);
+	uint16_t avgY = ABS(totalAccel.y/nbAccel);
+	uint16_t avgZ = ABS(totalAccel.z/nbAccel);
 	
 	avgX = DIVERG(avgX,data->x);
 	avgY = DIVERG(avgY,data->y);
@@ -205,7 +204,7 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
 	if(ABS(accel.z) > 5000 || ABS(accel.x) > 5000 || ABS(accel.y) > 5000)
 		return;
 		
-	if(fap_timer > 1){
+	if(totalAccel.total > 1){
 		uint16_t modulo = getModulo(&accel) + 10;
 		uint16_t increase = (rand() % modulo) + 1;
 		APP_LOG(APP_LOG_LEVEL_DEBUG,"Add xp %i%%%i", increase,modulo);
@@ -220,16 +219,15 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
 		updateLvlNextLayers();
 	}
 	
-	fap_timer++;
+	totalAccel.total++;
 	
-	if(fap_timer == RESET_TOTAL_MIN) {
-		fap_timer = 0;
-		totalAccel = (AccelData){0,0,0,0,0};
+	if(totalAccel.total == RESET_TOTAL_MIN) {
+		totalAccel = (AccelTotal){0,0,0,0};
 	}
 	
-	totalAccel.x += ABS(accel.x);
-	totalAccel.y += ABS(accel.y);
-	totalAccel.z += ABS(accel.z);
+	totalAccel.x += accel.x;
+	totalAccel.y += accel.y;
+	totalAccel.z += accel.z;
 
 }
 
@@ -280,6 +278,11 @@ static void do_init(void) {
   if(persist_exists(PIPE_CURRENT_CRIPPLED)) {
 	  currentVaultBoy = persist_read_int(PIPE_CURRENT_CRIPPLED);
 	  dead = (currentVaultBoy == RESOURCE_ID_DEAD);
+  }
+  
+  if(persist_exists(PIPE_TOTAL)) {
+	 persist_read_data(PIPE_TOTAL, &totalAccel, sizeof(totalAccel));
+	 APP_LOG(APP_LOG_LEVEL_DEBUG,"totalAccel : (%i,%i,%i) -- %i",totalAccel.x,totalAccel.y,totalAccel.z,totalAccel.total);
   }
   
   
@@ -375,6 +378,7 @@ static void do_deinit(void) {
   persist_write_int(PIPE_LAST_XP, lastXp);
   persist_write_int(PIPE_LAST_GAIN,lastGain);
   persist_write_int(PIPE_CURRENT_CRIPPLED,currentVaultBoy);
+  persist_write_data(PIPE_TOTAL, &totalAccel, sizeof(totalAccel));
   tick_timer_service_unsubscribe();
   battery_state_service_unsubscribe();
   bluetooth_connection_service_unsubscribe();
