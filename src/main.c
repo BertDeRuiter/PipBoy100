@@ -126,10 +126,6 @@ static void killVaultBoy() {
 
 static void vaultBoy_status() {
 	
-	if(dead) {
-		return;
-	}
-	
 	if(battery_state_service_peek().is_charging  && currentVaultBoy > RESOURCE_ID_VAULT_BOY) {
 		loadVaultBoyState(--currentVaultBoy);
 		persist_write_int(PIPE_CURRENT_CRIPPLED,currentVaultBoy);
@@ -199,26 +195,19 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
 			return;
 		}
 	}
-	
-	if(units_changed & HOUR_UNIT) {
-		vaultBoy_status();
-	}
-	
-	
+		
 	AccelData accel;
 	accel_service_peek(&accel);
 	
 	APP_LOG(APP_LOG_LEVEL_DEBUG,"Accel : (%i,%i,%i)",accel.x,accel.y,accel.z);
 	
-	if(ABS(accel.z) > 5000 || ABS(accel.x) > 5000 || ABS(accel.y) > 5000)
-		return;
 		
 	totalAccel.x += accel.x;
 	totalAccel.y += accel.y;
 	totalAccel.z += accel.z;
 
 		
-	if(totalAccel.total > 1){
+	if(totalAccel.total > 0){
 		uint16_t modulo = getModulo(&accel) + 10;
 		uint16_t increase = (rand() % modulo) + 1;
 		APP_LOG(APP_LOG_LEVEL_DEBUG,"Add xp %i%%%i", increase,modulo);
@@ -242,6 +231,8 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
 	
 	if(totalAccel.total == RESET_TOTAL_MIN) {
 		totalAccel = (AccelTotal){0,0,0,0};
+		vaultBoy_status();
+		
 	}
 
 }

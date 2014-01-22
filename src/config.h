@@ -1,14 +1,15 @@
 #pragma once
 
 #define SQRT_MAX_STEPS 40
-//Lose 45% of XP
+//Lose 45% of XP when dying
 #define XP_LOSS 0.55
 
 #define MAX_CRIPPLED 8
 
-//Every 15 minute (RESET_TOTAL_MIN+1) reset the total acceleration used to calculate
+//Every 20 minutes (RESET_TOTAL_MIN+1) reset the total acceleration used to calculate
 //the max xp amount given to the player.
-#define RESET_TOTAL_MIN 14
+//And check if the player lose or heal a limb.
+#define RESET_TOTAL_MIN 19
 
 #define ABS(i)( i>0? i: i*-1)
 
