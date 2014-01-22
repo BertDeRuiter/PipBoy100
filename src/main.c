@@ -19,11 +19,10 @@ static uint32_t xp_counter = 0;
 static uint32_t xp_needed;
 static uint8_t xp_multiplier;
 static uint32_t lvl_counter;
-static uint8_t fap_timer = 0;
 static uint32_t lastXp = 0;
 static uint32_t lastGain = 0;
 
-static AccelData totalAccel = {0,0,0,0,0};
+static AccelTotal totalAccel = {0,0,0,0};
 	
 static GBitmap *image;
 static GBitmap *vaultBoy;
@@ -73,10 +72,10 @@ static void updateLvlNextLayers() {
 
 static uint16_t getModulo(AccelData *data) {
 	uint16_t smallest;
-	uint8_t nbAccel = fap_timer + 1;
-	uint16_t avgX = totalAccel.x/nbAccel;
-	uint16_t avgY = totalAccel.y/nbAccel;
-	uint16_t avgZ = totalAccel.z/nbAccel;
+	uint8_t nbAccel = totalAccel.total + 1;
+	uint16_t avgX = ABS(totalAccel.x/nbAccel);
+	uint16_t avgY = ABS(totalAccel.y/nbAccel);
+	uint16_t avgZ = ABS(totalAccel.z/nbAccel);
 	
 	avgX = DIVERG(avgX,data->x);
 	avgY = DIVERG(avgY,data->y);
@@ -126,6 +125,13 @@ static void killVaultBoy() {
 }
 
 static void vaultBoy_status() {
+	
+	if(battery_state_service_peek().is_charging  && currentVaultBoy > RESOURCE_ID_VAULT_BOY) {
+		loadVaultBoyState(--currentVaultBoy);
+		persist_write_int(PIPE_CURRENT_CRIPPLED,currentVaultBoy);
+		return;
+	}
+	
 	uint64_t currentGain = xp_counter - lastXp;
 	if(currentGain <= lastGain) {
 		currentVaultBoy++;
@@ -134,7 +140,7 @@ static void vaultBoy_status() {
 		} else {
 			loadVaultBoyState(currentVaultBoy);
 		}
-	} else if(!dead && currentVaultBoy > RESOURCE_ID_VAULT_BOY) {
+	} else if(currentVaultBoy > RESOURCE_ID_VAULT_BOY) {
 		loadVaultBoyState(--currentVaultBoy);
 	}
 	lastGain = currentGain;
@@ -154,8 +160,7 @@ static void handle_battery(BatteryChargeState charge_state) {
   }
   text_layer_set_text(battery_layer, battery_text);
 }
-
-static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
+static void setTimeLayers(struct tm* tick_time, TimeUnits units_changed) {
 	static char time_text[6]; 
 	char *time_format;
 	char *date_format;
@@ -168,20 +173,23 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
 		date_format = "%m-%d-%Y";
     }
 	
-	if(units_changed & SECOND_UNIT){
-		strftime(time_text, sizeof(time_text), time_format, tick_time);
-		text_layer_set_text(time_layer, time_text);
+	strftime(time_text, sizeof(time_text), time_format, tick_time);
+	text_layer_set_text(time_layer, time_text);
+
+	
+  	if (units_changed & DAY_UNIT) {
+		static char date_text[20];
+		strftime(date_text, sizeof(date_text), date_format, tick_time);
+		text_layer_set_text(date_layer, date_text);
+	}
+}
+static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
+
+	if(!(units_changed & MINUTE_UNIT)) {
+		return;
 	}
 	
-  	if (units_changed & MONTH_UNIT) {
-		static char date_text[20];
-		strftime(date_text, sizeof(date_text), date_format, tick_time);
-		text_layer_set_text(date_layer, date_text);
-	}else if(units_changed & DAY_UNIT){
-		static char date_text[20];
-		strftime(date_text, sizeof(date_text), date_format, tick_time);
-		text_layer_set_text(date_layer, date_text);
-	}
+	setTimeLayers(tick_time,units_changed);
 	
 	if(dead) {
 		dead = rand() %2;
@@ -191,21 +199,19 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
 			return;
 		}
 	}
-	
-	if(units_changed & HOUR_UNIT) {
-		vaultBoy_status();
-	}
-	
-	
+		
 	AccelData accel;
 	accel_service_peek(&accel);
 	
 	APP_LOG(APP_LOG_LEVEL_DEBUG,"Accel : (%i,%i,%i)",accel.x,accel.y,accel.z);
 	
-	if(ABS(accel.z) > 5000 || ABS(accel.x) > 5000 || ABS(accel.y) > 5000)
-		return;
 		
-	if(fap_timer > 1){
+	totalAccel.x += accel.x;
+	totalAccel.y += accel.y;
+	totalAccel.z += accel.z;
+
+		
+	if(totalAccel.total > 0){
 		uint16_t modulo = getModulo(&accel) + 10;
 		uint16_t increase = (rand() % modulo) + 1;
 		APP_LOG(APP_LOG_LEVEL_DEBUG,"Add xp %i%%%i", increase,modulo);
@@ -214,22 +220,24 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
 		updateXpLayer();
 	}
 	
-	if(xp_counter >= xp_needed) {
+	bool levelUp = false;
+	while(xp_counter >= xp_needed) {
 		lvl_counter++;
 		xp_needed = getXpForNextLvl();
+		levelUp = true;
+	}
+	
+	if(levelUp) {
 		updateLvlNextLayers();
 	}
 	
-	fap_timer++;
+	totalAccel.total++;
 	
-	if(fap_timer == RESET_TOTAL_MIN) {
-		fap_timer = 0;
-		totalAccel = (AccelData){0,0,0,0,0};
+	if(totalAccel.total == RESET_TOTAL_MIN) {
+		totalAccel = (AccelTotal){0,0,0,0};
+		vaultBoy_status();
+		
 	}
-	
-	totalAccel.x += ABS(accel.x);
-	totalAccel.y += ABS(accel.y);
-	totalAccel.z += ABS(accel.z);
 
 }
 
@@ -280,6 +288,11 @@ static void do_init(void) {
   if(persist_exists(PIPE_CURRENT_CRIPPLED)) {
 	  currentVaultBoy = persist_read_int(PIPE_CURRENT_CRIPPLED);
 	  dead = (currentVaultBoy == RESOURCE_ID_DEAD);
+  }
+  
+  if(persist_exists(PIPE_TOTAL)) {
+	 persist_read_data(PIPE_TOTAL, &totalAccel, sizeof(totalAccel));
+	 APP_LOG(APP_LOG_LEVEL_DEBUG,"totalAccel : (%i,%i,%i) -- %i",totalAccel.x,totalAccel.y,totalAccel.z,totalAccel.total);
   }
   
   
@@ -351,7 +364,7 @@ static void do_init(void) {
   struct tm *current_time = localtime(&now);
   handle_battery(battery_state_service_peek());
   accel_data_service_subscribe(0, &handle_accel);
-  handle_second_tick(current_time, SECOND_UNIT);
+  setTimeLayers(current_time,SECOND_UNIT);
   tick_timer_service_subscribe(MINUTE_UNIT, &handle_second_tick);
   battery_state_service_subscribe(&handle_battery);
   bluetooth_connection_service_subscribe(&handle_bluetooth);
@@ -375,6 +388,7 @@ static void do_deinit(void) {
   persist_write_int(PIPE_LAST_XP, lastXp);
   persist_write_int(PIPE_LAST_GAIN,lastGain);
   persist_write_int(PIPE_CURRENT_CRIPPLED,currentVaultBoy);
+  persist_write_data(PIPE_TOTAL, &totalAccel, sizeof(totalAccel));
   tick_timer_service_unsubscribe();
   battery_state_service_unsubscribe();
   bluetooth_connection_service_unsubscribe();
