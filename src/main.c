@@ -22,7 +22,7 @@ static uint32_t lvl_counter;
 static uint32_t lastXp = 0;
 static uint32_t lastGain = 0;
 
-static AccelTotal totalAccel = {0,0,0,0};
+static AccelTotal totalAccel = {0,0,0,0,0,0,0};
 	
 static GBitmap *image;
 static GBitmap *vaultBoy;
@@ -50,7 +50,27 @@ float my_sqrt(float num) {
   }
   return a;
 }
+static bool canGainXP(AccelData *accel) {
+	int16_t lastX = totalAccel.lastX;
+	int16_t lastY = totalAccel.lastY;
+	int16_t lastZ = totalAccel.lastZ;
+	totalAccel.lastX = accel->x;
+	totalAccel.lastY = accel->y;
+	totalAccel.lastZ = accel->z;
+	totalAccel.total++;
+	APP_LOG(APP_LOG_LEVEL_DEBUG,"Last Accel : (%i,%i,%i)",lastX,lastY,lastZ);
+	if(DIVERG(accel->x,lastX) >= MIN_MOVMNT || 
+	   DIVERG(accel->y,lastY) >= MIN_MOVMNT || 
+	   DIVERG(accel->z,lastZ) >= MIN_MOVMNT) {
+		totalAccel.x += accel->x;
+		totalAccel.y += accel->y;
+		totalAccel.z += accel->z;
+		return true;
+	}
+	APP_LOG(APP_LOG_LEVEL_DEBUG,"No XP");
+	return false;
 
+}
 static int getCurrentLvlFromXP() {
 	return (int)((xp_multiplier + my_sqrt(xp_multiplier * xp_multiplier - 4 * xp_multiplier * (-xp_counter) ))/ (2 * xp_multiplier));
 }
@@ -72,25 +92,22 @@ static void updateLvlNextLayers() {
 
 static uint16_t getModulo(AccelData *data) {
 	uint16_t smallest;
-	uint8_t nbAccel = totalAccel.total + 1;
-	uint16_t avgX = ABS(totalAccel.x/nbAccel);
-	uint16_t avgY = ABS(totalAccel.y/nbAccel);
-	uint16_t avgZ = ABS(totalAccel.z/nbAccel);
+	uint8_t nbAccel = totalAccel.total;
 	
-	avgX = DIVERG(avgX,data->x);
-	avgY = DIVERG(avgY,data->y);
-	avgZ = DIVERG(avgZ,data->z);
+	uint16_t divergX = DIVERG(totalAccel.x/nbAccel,data->x);
+	uint16_t divergY = DIVERG(totalAccel.y/nbAccel,data->y);
+	uint16_t divergZ = DIVERG(totalAccel.z/nbAccel,data->z);
 	
-	smallest = avgX;
+	smallest = divergX;
 	
-	if(avgY < smallest) {
-		smallest = avgY;
+	if(divergY < smallest) {
+		smallest = divergY;
 	}
-	if(avgZ < smallest) {
-		smallest = avgZ;
+	if(divergZ < smallest) {
+		smallest = divergZ;
 	}
 	
-	APP_LOG(APP_LOG_LEVEL_DEBUG,"DIV : (%i,%i,%i)",avgX,avgY,avgZ);
+	APP_LOG(APP_LOG_LEVEL_DEBUG,"DIV : (%i,%i,%i)",divergX,divergY,divergZ);
 	return smallest;
 }
 static void loadVaultBoyState(uint8_t ressource) {
@@ -205,13 +222,12 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
 	
 	APP_LOG(APP_LOG_LEVEL_DEBUG,"Accel : (%i,%i,%i)",accel.x,accel.y,accel.z);
 	
-		
-	totalAccel.x += accel.x;
-	totalAccel.y += accel.y;
-	totalAccel.z += accel.z;
+	if(!canGainXP(&accel)) {
+		return;
+	}
 
 		
-	if(totalAccel.total > 0){
+	if(totalAccel.total > 1){
 		uint16_t modulo = getModulo(&accel) + 10;
 		uint16_t increase = (rand() % modulo) + 1;
 		APP_LOG(APP_LOG_LEVEL_DEBUG,"Add xp %i%%%i", increase,modulo);
@@ -231,12 +247,11 @@ static void handle_second_tick(struct tm* tick_time, TimeUnits units_changed) {
 		updateLvlNextLayers();
 	}
 	
-	totalAccel.total++;
+
 	
 	if(totalAccel.total == RESET_TOTAL_MIN) {
-		totalAccel = (AccelTotal){0,0,0,0};
-		vaultBoy_status();
-		
+		totalAccel = (AccelTotal){0,0,0,0,0,0,0};
+		vaultBoy_status();		
 	}
 
 }
