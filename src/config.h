@@ -17,7 +17,7 @@
 
 //If the user didn't make a mouvement that have a difference of MIN_MOVMNT
 //the watchface consider that he can't get XP for that mouvement.
-#define MIN_MOVMNT 50
+#define MIN_MOVMNT 45
 
 typedef enum {
   PIPEXP = 0,
